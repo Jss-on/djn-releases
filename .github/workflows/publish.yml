@@ -1,0 +1,35 @@
+name: Publish
+# The private repository's release workflow pushes each new installer and its .sha256 to the incoming branch
+# with a deploy key: one commit, force-pushed, whose message is the version tag. This job checks the installer
+# against its SHA-256 and publishes it as a release, which the program's Update button reads.
+on:
+  push:
+    branches: [incoming]
+permissions:
+  contents: write
+concurrency:
+  group: publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: incoming
+          persist-credentials: false
+      - name: Check the installer, then publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(git log -1 --format=%s)"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The incoming commit message must be a version tag such as v1.3.0."
+            exit 1
+          fi
+          f="djn-setup-${TAG#v}.exe"
+          sha256sum -c "$f.sha256"
+          notes="DJN business system ${TAG#v}. The Owner clicks Update on the program's Status page, then runs the saved installer on the main PC."
+          gh release create "$TAG" "$f" "$f.sha256" --repo "$GITHUB_REPOSITORY" --target main --title "$TAG" --notes "$notes" \
+            || gh release upload "$TAG" "$f" "$f.sha256" --clobber --repo "$GITHUB_REPOSITORY"
